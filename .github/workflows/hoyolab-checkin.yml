@@ -1,0 +1,62 @@
+name: Hoyolab Daily Check-in
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 9 * * *"
+      timezone: "Europe/Paris"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hoyolab-checkin
+  cancel-in-progress: false
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Restore Hoyolab session
+        shell: bash
+        env:
+          HOYOLAB_STORAGE_STATE_B64: ${{ secrets.HOYOLAB_STORAGE_STATE_B64 }}
+        run: |
+          if [ -z "$HOYOLAB_STORAGE_STATE_B64" ]; then
+            echo "Missing GitHub secret HOYOLAB_STORAGE_STATE_B64"
+            exit 1
+          fi
+          mkdir -p .auth
+          printf '%s' "$HOYOLAB_STORAGE_STATE_B64" | base64 -d > .auth/hoyolab-storage-state.json
+
+      - name: Run Hoyolab check-in
+        env:
+          HEADLESS: "true"
+          PROOF_DIR: output/proofs
+        run: npm run checkin
+
+      - name: Upload proof screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hoyolab-checkin-${{ github.run_id }}
+          path: output/proofs/*.png
+          if-no-files-found: warn
+          retention-days: 30
