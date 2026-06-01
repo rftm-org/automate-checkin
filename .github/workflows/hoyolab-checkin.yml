@@ -3,8 +3,10 @@ name: Hoyolab Daily Check-in
 on:
   workflow_dispatch:
   schedule:
-    - cron: "15 9 * * *"
-      timezone: "Europe/Paris"
+    # GitHub Actions cron runs in UTC. These are roughly morning, noon, and evening in Europe/Paris.
+    - cron: "15 7 * * *"
+    - cron: "15 10 * * *"
+    - cron: "15 16 * * *"
 
 permissions:
   contents: read
