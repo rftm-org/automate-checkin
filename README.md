@@ -32,7 +32,7 @@ npm run auth
 Alternative, if `browser-harness` agent Chrome is already authenticated on Hoyolab:
 
 ```powershell
-& "C:\Users\ggrft\.agents\skills\browser-harness\scripts\start-agent-chrome.ps1" -PersistEnv
+& "C:\Users\<user-name>\.agents\skills\browser-harness\scripts\start-agent-chrome.ps1" -PersistEnv
 npm run auth:cdp
 ```
 
