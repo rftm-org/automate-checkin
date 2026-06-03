@@ -100,16 +100,3 @@ If Hoyolab expires the session or asks for CAPTCHA/manual verification:
 5. Re-run the workflow manually.
 
 Do not store Hoyolab email/password secrets for automated login.
-
-## Current Codex Desktop Automation
-
-Keep the current Codex Desktop automation as a fallback until the GitHub Actions workflow has succeeded for a few consecutive days.
-
-Recommended handoff:
-
-1. Create the private repo and add the GitHub secret.
-2. Run the workflow manually once.
-3. Let the scheduled workflow succeed for 2-3 days.
-4. Pause or delete the Codex Desktop automation `automatiser-check-in-hoyolab`.
-
-Do not keep both as permanent primary automations. If GitHub succeeds first, the local Codex automation may later find no active tile and add noise.
