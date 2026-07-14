@@ -191,7 +191,8 @@
         dialog.close();
         try {
           const r = await api(`/api/accounts/${id}/commit-login`, { method: "POST" });
-          toast(r.pushOk ? "Session sauvegardée + push OK." : `Sauvegardé. Push: ${r.push}`);
+          if (r.error) toast("Erreur: " + r.error);
+          else toast(r.pushOk ? "Session sauvegardée + push OK." : "Sauvegardé. Push: " + r.push);
         } catch (e) {
           toast(e.message);
         }
@@ -213,12 +214,16 @@
       async function runOne(id) {
         toast("Check-in en cours...");
         try {
-          await api("/api/run", {
+          const r = await api("/api/run", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ accountId: id }),
           });
-          toast("Check-in terminé.");
+          const res = (r.results || []).find((x) => x.accountId === id) || (r.results || [])[0];
+          if (!res) toast("Check-in terminé (aucun résultat).");
+          else if (res.status === "checked_in") toast("Check-in effectué.");
+          else if (res.status === "noop") toast("Déjà fait / rien à faire.");
+          else toast("Échec : " + (res.error || "inconnu"));
         } catch (e) {
           toast(e.message);
         }
@@ -228,12 +233,16 @@
       async function runAll() {
         toast("Check-in de tous les comptes en cours...");
         try {
-          await api("/api/run", {
+          const r = await api("/api/run", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({}),
           });
-          toast("Check-in terminé.");
+          const results = r.results || [];
+          const failed = results.filter((x) => x.status === "failed");
+          if (results.length === 0) toast("Check-in terminé (aucun compte).");
+          else if (failed.length === 0) toast(`Check-in terminé : ${results.length} compte(s) OK.`);
+          else toast(`${failed.length} échec(s) : ${failed.map((f) => f.error || "").join(" ; ")}`);
         } catch (e) {
           toast(e.message);
         }

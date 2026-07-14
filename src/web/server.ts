@@ -76,6 +76,7 @@ function runCheckinProcess(accountId?: string): Promise<{ results: unknown[]; ou
       cwd: process.cwd(),
       env: { ...process.env, HEADLESS: "true" },
       stdio: ["ignore", "pipe", "pipe"],
+      shell: true,
     });
     let stdout = "";
     let stderr = "";
@@ -197,6 +198,19 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, parts: strin
     if (method === "POST" && parts[3] === "commit-login") {
       const session = loginSessions.get(id);
       if (!session) return sendJson(res, 400, { error: "Aucune session de connexion en cours pour ce compte." });
+
+      const cookies = await session.context.cookies();
+      const names = new Set(cookies.map((c) => c.name));
+      const required = ["ltuid_v2", "ltoken_v2", "account_id_v2", "cookie_token_v2"];
+      const missing = required.filter((n) => !names.has(n));
+      if (missing.length > 0) {
+        await session.browser.close().catch(() => undefined);
+        loginSessions.delete(id);
+        db.deleteAccount(id);
+        return sendJson(res, 400, {
+          error: `Session Hoyolab incomplete (cookies manquants: ${missing.join(", ")}). Reconnecte-toi completement (jusqu'au tableau de bord Hoyolab), puis clique Sauvegarder.`,
+        });
+      }
 
       try {
         await session.context.storageState({ path: accountStorageStatePath(id), indexedDB: true });
