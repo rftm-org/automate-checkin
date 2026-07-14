@@ -201,10 +201,10 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, parts: strin
 
       const page = session.context.pages()[0] || (await session.context.newPage());
       try {
-        await page.goto("https://www.hoyolab.com/", { waitUntil: "domcontentloaded" });
-        await page.waitForTimeout(3000);
+        await page.goto(HOYOLAB_SIGNIN_URL, { waitUntil: "domcontentloaded" });
+        await page.waitForTimeout(4000);
       } catch {
-        // ignore navigation issues; the cookie check below is the source of truth
+        // best-effort : laisse la page telle quelle, le check des cookies est la source de verite
       }
       const cookies = await session.context.cookies();
       const names = new Set(cookies.map((c) => c.name));
@@ -215,7 +215,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, parts: strin
         loginSessions.delete(id);
         db.deleteAccount(id);
         return sendJson(res, 400, {
-          error: `Session Hoyolab incomplete (cookies manquants: ${missing.join(", ")}). Apres la connexion email+mot de passe sur la page de check-in, Hoyolab cree uniquement les cookies passport. Les cookies du compte (account_id_v2, cookie_token_v2) sont crees quand tu arrives sur le tableau de bord : ouvre https://www.hoyolab.com/ (ou ton avatar > tableau de bord), attends le chargement, puis reclique Sauvegarder.`,
+          error: `Session Hoyolab incomplete (cookies manquants: ${missing.join(", ")}). Apres la connexion email+mot de passe, ouvre ton tableau de bord de compte (clic sur ton avatar en haut a droite > "Tableau de bord" / centre utilisateur ou https://www.hoyolab.com/) : c'est la page qui lie reelement ton compte et cree account_id_v2/cookie_token_v2. Attends qu'elle soit chargee, puis reclique Sauvegarder.`,
         });
       }
 
