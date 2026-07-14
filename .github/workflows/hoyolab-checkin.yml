@@ -36,29 +36,36 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
-      - name: Restore Hoyolab session
+      - name: Restore Hoyolab sessions
         shell: bash
         env:
-          HOYOLAB_STORAGE_STATE_B64: ${{ secrets.HOYOLAB_STORAGE_STATE_B64 }}
+          HOYOLAB_ACCOUNTS_B64: ${{ secrets.HOYOLAB_ACCOUNTS_B64 }}
         run: |
-          if [ -z "$HOYOLAB_STORAGE_STATE_B64" ]; then
-            echo "Missing GitHub secret HOYOLAB_STORAGE_STATE_B64"
+          if [ -z "$HOYOLAB_ACCOUNTS_B64" ]; then
+            echo "Missing GitHub secret HOYOLAB_ACCOUNTS_B64"
             exit 1
           fi
-          mkdir -p .auth
-          printf '%s' "$HOYOLAB_STORAGE_STATE_B64" | base64 -d > .auth/hoyolab-storage-state.json
+          mkdir -p .auth/accounts
+          printf '%s' "$HOYOLAB_ACCOUNTS_B64" | base64 -d | gunzip | node -e '
+            const fs = require("fs");
+            const data = JSON.parse(fs.readFileSync(0, "utf8"));
+            for (const acc of data.accounts) {
+              fs.writeFileSync(`.auth/accounts/${acc.id}.json`, acc.state);
+            }
+            console.log(`Restored ${data.accounts.length} account(s).`);
+          '
 
-      - name: Run Hoyolab check-in
+      - name: Run Hoyolab check-in for all accounts
         env:
           HEADLESS: "true"
           PROOF_DIR: output/proofs
-        run: npm run checkin
+        run: npm run checkin:all
 
       - name: Upload proof screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: hoyolab-checkin-${{ github.run_id }}
-          path: output/proofs/*.png
+          path: output/proofs/**/*.png
           if-no-files-found: warn
           retention-days: 30

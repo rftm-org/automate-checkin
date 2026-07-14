@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Automate Check-in — Comptes</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0f1115;
+        --card: #1a1d24;
+        --accent: #4f8cff;
+        --ok: #2ecc71;
+        --fail: #e74c3c;
+        --noop: #95a5a6;
+        --text: #e6e8ec;
+        --muted: #9aa0aa;
+        --border: #2a2e37;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding: 24px;
+      }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+      .bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+      button {
+        background: var(--accent);
+        color: white;
+        border: 0;
+        padding: 9px 14px;
+        border-radius: 8px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button.secondary { background: #2a2e37; }
+      button.danger { background: transparent; color: var(--fail); border: 1px solid var(--fail); }
+      button:disabled { opacity: 0.5; cursor: default; }
+      input {
+        background: var(--card);
+        border: 1px solid var(--border);
+        color: var(--text);
+        padding: 9px 12px;
+        border-radius: 8px;
+        font-size: 14px;
+      }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .card .name { font-weight: 600; font-size: 15px; word-break: break-all; }
+      .badge {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        width: fit-content;
+      }
+      .badge.success { background: rgba(46, 204, 113, 0.15); color: var(--ok); }
+      .badge.failed { background: rgba(231, 76, 60, 0.15); color: var(--fail); }
+      .badge.noop { background: rgba(149, 165, 166, 0.15); color: var(--noop); }
+      .badge.unknown, .badge.inactive { background: #2a2e37; color: var(--muted); }
+      .meta { font-size: 12px; color: var(--muted); }
+      .card .actions { display: flex; gap: 8px; margin-top: auto; flex-wrap: wrap; }
+      .proof { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); }
+      .empty { color: var(--muted); font-size: 14px; }
+      .toast {
+        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+        background: #2a2e37; padding: 10px 16px; border-radius: 8px; font-size: 13px;
+        border: 1px solid var(--border); max-width: 90vw;
+      }
+      dialog { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+      dialog::backdrop { background: rgba(0,0,0,0.6); }
+      .modal-actions { display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end; }
+    </style>
+  </head>
+  <body>
+    <h1>Automate Check-in</h1>
+    <div class="sub">Gestion des comptes Hoyolab (localhost). Le check-in planifie via GitHub Actions.</div>
+
+    <div class="bar">
+      <input id="newName" placeholder="Nom du compte (ex: Alice)" />
+      <button id="addBtn">Ajouter un compte</button>
+      <button id="runAllBtn" class="secondary">Lancer tout</button>
+      <button id="pushBtn" class="secondary">Push secrets GitHub</button>
+    </div>
+
+    <div id="grid" class="grid"></div>
+    <div id="empty" class="empty" hidden>Aucun compte pour l'instant.</div>
+
+    <dialog id="loginDialog">
+      <h3 style="margin-top:0">Connexion Hoyolab</h3>
+      <p id="loginText" style="font-size:14px;color:var(--muted)"></p>
+      <div class="modal-actions">
+        <button id="cancelLogin" class="secondary">Annuler</button>
+        <button id="saveLogin">Sauvegarder la session</button>
+      </div>
+    </dialog>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script>
+      const grid = document.getElementById("grid");
+      const empty = document.getElementById("empty");
+      const toastEl = document.getElementById("toast");
+      const dialog = document.getElementById("loginDialog");
+
+      let currentLoginId = null;
+
+      function toast(msg) {
+        toastEl.textContent = msg;
+        toastEl.hidden = false;
+        clearTimeout(toastEl._t);
+        toastEl._t = setTimeout(() => (toastEl.hidden = true), 4000);
+      }
+
+      async function api(path, opts) {
+        const res = await fetch(path, opts);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
+        return data;
+      }
+
+      function statusBadge(a) {
+        if (!a.active) return `<span class="badge inactive">inactif</span>`;
+        const map = { success: "OK", failed: "échec", noop: "déjà fait", unknown: "?" };
+        const label = map[a.last_status] || "?";
+        return `<span class="badge ${a.last_status || "unknown"}">${label}</span>`;
+      }
+
+      function card(a) {
+        const proof = a.proofDay
+          ? `<img class="proof" src="/proofs/${a.id}/${a.proofDay}.png" alt="preuve" />`
+          : `<div class="meta">Pas de preuve encore.</div>`;
+        const last = a.last_run_at ? new Date(a.last_run_at).toLocaleString("fr-FR") : "jamais";
+        return `
+          <div class="card" data-id="${a.id}">
+            <div class="name">${escapeHtml(a.name)}</div>
+            ${statusBadge(a)}
+            <div class="meta">Dernier run: ${last}</div>
+            ${proof}
+            <div class="actions">
+              <button class="secondary runOne" data-id="${a.id}">Lancer</button>
+              <button class="danger del" data-id="${a.id}">Supprimer</button>
+            </div>
+          </div>`;
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      async function refresh() {
+        const { accounts } = await api("/api/accounts");
+        grid.innerHTML = accounts.map(card).join("");
+        empty.hidden = accounts.length > 0;
+        document.querySelectorAll(".del").forEach((b) =>
+          b.addEventListener("click", () => delAccount(b.dataset.id)),
+        );
+        document.querySelectorAll(".runOne").forEach((b) =>
+          b.addEventListener("click", () => runOne(b.dataset.id)),
+        );
+      }
+
+      async function addAccount() {
+        const name = document.getElementById("newName").value.trim();
+        if (!name) return toast("Entre un nom de compte.");
+        const acc = await api("/api/accounts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        currentLoginId = acc.id;
+        document.getElementById("loginText").textContent = acc.message;
+        dialog.showModal();
+        await refresh();
+      }
+
+      async function saveLogin() {
+        if (!currentLoginId) return;
+        const id = currentLoginId;
+        dialog.close();
+        try {
+          const r = await api(`/api/accounts/${id}/commit-login`, { method: "POST" });
+          toast(r.pushOk ? "Session sauvegardée + push OK." : `Sauvegardé. Push: ${r.push}`);
+        } catch (e) {
+          toast(e.message);
+        }
+        currentLoginId = null;
+        await refresh();
+      }
+
+      async function delAccount(id) {
+        if (!confirm("Supprimer ce compte et sa session ?")) return;
+        try {
+          const r = await api(`/api/accounts/${id}`, { method: "DELETE" });
+          toast(r.pushOk ? "Compte supprimé + push OK." : `Supprimé. Push: ${r.push}`);
+        } catch (e) {
+          toast(e.message);
+        }
+        await refresh();
+      }
+
+      async function runOne(id) {
+        toast("Check-in en cours...");
+        try {
+          await api("/api/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ accountId: id }),
+          });
+          toast("Check-in terminé.");
+        } catch (e) {
+          toast(e.message);
+        }
+        await refresh();
+      }
+
+      async function runAll() {
+        toast("Check-in de tous les comptes en cours...");
+        try {
+          await api("/api/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          });
+          toast("Check-in terminé.");
+        } catch (e) {
+          toast(e.message);
+        }
+        await refresh();
+      }
+
+      async function pushSecrets() {
+        try {
+          const r = await api("/api/push-secrets", { method: "POST" });
+          toast(r.ok ? "Push OK." : `Push: ${r.output}`);
+        } catch (e) {
+          toast(e.message);
+        }
+      }
+
+      document.getElementById("addBtn").addEventListener("click", addAccount);
+      document.getElementById("runAllBtn").addEventListener("click", runAll);
+      document.getElementById("pushBtn").addEventListener("click", pushSecrets);
+      document.getElementById("saveLogin").addEventListener("click", saveLogin);
+      document.getElementById("cancelLogin").addEventListener("click", () => dialog.close());
+
+      refresh();
+    </script>
+  </body>
+</html>

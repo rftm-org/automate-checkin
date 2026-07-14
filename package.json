@@ -8,6 +8,10 @@
     "auth:cdp": "tsx src/export-from-cdp.ts",
     "checkin": "tsx src/checkin.ts",
     "checkin:dry": "tsx src/checkin.ts --dry-run",
+    "checkin:all": "tsx src/checkin.ts --all",
+    "web": "tsx src/web/server.ts",
+    "push-secrets": "tsx src/push-secrets.ts",
+    "migrate-legacy": "tsx src/migrate-legacy.ts",
     "verify": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,7 +1,17 @@
 import { access } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { chromium, type Page } from "playwright";
-import { ensureDir, hasFlag, HOYOLAB_SIGNIN_URL, isHeadless, proofPath, storageStatePath } from "./config.js";
+import {
+  accountProofDir,
+  accountStorageStatePath,
+  ensureDir,
+  hasFlag,
+  HOYOLAB_SIGNIN_URL,
+  isHeadless,
+  parisDay,
+  proofPath,
+  storageStatePath,
+} from "./config.js";
 
 type RewardTile = {
   text: string;
@@ -13,6 +23,17 @@ type TileState = {
   active: RewardTile[];
   signed: RewardTile[];
   all: RewardTile[];
+};
+
+export type CheckinStatus = "checked_in" | "noop" | "failed";
+
+export type CheckinResult = {
+  accountId?: string;
+  status: CheckinStatus;
+  proof?: string;
+  error?: string;
+  beforeCounter?: number | null;
+  afterCounter?: number | null;
 };
 
 async function fileExists(path: string): Promise<boolean> {
@@ -143,18 +164,32 @@ async function clickActiveTile(page: Page, tile: RewardTile): Promise<void> {
   await page.waitForTimeout(3000);
 }
 
-async function main(): Promise<void> {
-  const dryRun = hasFlag("--dry-run");
-  const finalProofPath = proofPath("checkin");
+export function makeAccountProofPath(id: string, kind: string): string {
+  const dd = String(parisDay()).padStart(2, "0");
+  const dir = accountProofDir(id);
+  if (kind === "checkin") {
+    return resolve(dir, `${dd}.png`);
+  }
+  const prefix = kind === "dry-run" ? "dry" : "fail";
+  return resolve(dir, `${prefix}-${dd}.png`);
+}
 
-  if (!dryRun && (await fileExists(finalProofPath))) {
-    console.log(`Proof already exists: ${finalProofPath}`);
-    return;
+export async function runCheckin(opts: {
+  storageStatePath: string;
+  makeProofPath: (kind: string) => string;
+  dryRun: boolean;
+  allowRerun: boolean;
+  accountId?: string;
+}): Promise<CheckinResult> {
+  const { storageStatePath: statePath, makeProofPath, dryRun, allowRerun, accountId } = opts;
+  const finalProofPath = makeProofPath("checkin");
+
+  if (!dryRun && !allowRerun && (await fileExists(finalProofPath))) {
+    return { accountId, status: "noop", proof: finalProofPath };
   }
 
-  const statePath = await storageStatePath();
   if (!(await fileExists(statePath))) {
-    throw new Error(`Missing storage state at ${statePath}. Run npm run auth first.`);
+    return { accountId, status: "failed", error: `Missing storage state at ${statePath}.` };
   }
 
   await ensureDir(dirname(finalProofPath));
@@ -173,30 +208,15 @@ async function main(): Promise<void> {
     const beforeCounter = parseCounter(beforeText);
     let state = await revealMoreIfUseful(page, await readTileState(page));
 
-    console.log(
-      JSON.stringify(
-        {
-          beforeCounter,
-          active: state.active.map((tile) => tile.text),
-          signed: state.signed.map((tile) => tile.text),
-          dryRun,
-        },
-        null,
-        2,
-      ),
-    );
-
     if (dryRun) {
-      const dryProofPath = proofPath("dry-run");
+      const dryProofPath = makeProofPath("dry-run");
       await page.screenshot({ path: dryProofPath, fullPage: false });
-      console.log(`Dry-run screenshot saved: ${dryProofPath}`);
-      return;
+      return { accountId, status: "noop", proof: dryProofPath, beforeCounter, afterCounter: beforeCounter };
     }
 
     if (state.active.length === 0) {
       await page.screenshot({ path: finalProofPath, fullPage: false });
-      console.log(`No active tile found. Treating as already done; proof saved: ${finalProofPath}`);
-      return;
+      return { accountId, status: "noop", proof: finalProofPath, beforeCounter, afterCounter: beforeCounter };
     }
 
     await clickActiveTile(page, state.active[0]);
@@ -204,7 +224,9 @@ async function main(): Promise<void> {
     if (await closeAppReminderIfPresent(page)) {
       state = await revealMoreIfUseful(page, await readTileState(page));
       if (state.active.length === 0) {
-        throw new Error("App reminder was closed, but active reward tile disappeared before success verification.");
+        const failurePath = makeProofPath("failure");
+        await page.screenshot({ path: failurePath, fullPage: false });
+        return { accountId, status: "failed", proof: failurePath, error: "App reminder closed, active tile disappeared." };
       }
       await clickActiveTile(page, state.active[0]);
     }
@@ -216,30 +238,76 @@ async function main(): Promise<void> {
       typeof beforeCounter === "number" && typeof afterCounter === "number" && afterCounter > beforeCounter;
 
     if (!successByDialog && !successByCounter) {
-      const failurePath = proofPath("failure");
+      const failurePath = makeProofPath("failure");
       await page.screenshot({ path: failurePath, fullPage: false });
-      throw new Error(`Check-in success could not be verified. Failure screenshot: ${failurePath}`);
+      return { accountId, status: "failed", proof: failurePath, beforeCounter, afterCounter, error: "Success could not be verified." };
     }
 
     await page.screenshot({ path: finalProofPath, fullPage: false });
-    console.log(
-      JSON.stringify(
-        {
-          status: "checked_in",
-          proof: finalProofPath,
-          beforeCounter,
-          afterCounter,
-          successByDialog,
-          successByCounter,
-        },
-        null,
-        2,
-      ),
-    );
+    return { accountId, status: "checked_in", proof: finalProofPath, beforeCounter, afterCounter };
   } finally {
     await context.close();
     await browser.close();
   }
+}
+
+function getFlagValue(name: string): string | undefined {
+  for (let i = 0; i < process.argv.length; i += 1) {
+    const arg = process.argv[i];
+    if (arg === name && i + 1 < process.argv.length) {
+      return process.argv[i + 1];
+    }
+    if (arg.startsWith(`${name}=`)) {
+      return arg.slice(name.length + 1);
+    }
+  }
+  return undefined;
+}
+
+async function listAccountStates(): Promise<string[]> {
+  const { readdir } = await import("node:fs/promises");
+  const { ACCOUNTS_DIR } = await import("./config.js");
+  let files: string[] = [];
+  try {
+    files = await readdir(ACCOUNTS_DIR);
+  } catch {
+    files = [];
+  }
+  return files.filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -".json".length));
+}
+
+async function main(): Promise<void> {
+  const dryRun = hasFlag("--dry-run");
+  const accountId = getFlagValue("--account");
+  const runAll = hasFlag("--all");
+
+  if (runAll || accountId) {
+    const ids = accountId ? [accountId] : await listAccountStates();
+    const results: CheckinResult[] = [];
+    for (const id of ids) {
+      const result = await runCheckin({
+        storageStatePath: accountStorageStatePath(id),
+        makeProofPath: (kind) => makeAccountProofPath(id, kind),
+        dryRun,
+        allowRerun: true,
+        accountId: id,
+      });
+      results.push(result);
+      console.log(JSON.stringify(result));
+    }
+    const failed = results.filter((r) => r.status === "failed");
+    if (failed.length > 0) process.exitCode = 1;
+    return;
+  }
+
+  const result = await runCheckin({
+    storageStatePath: await storageStatePath(),
+    makeProofPath: (kind) => proofPath(kind),
+    dryRun,
+    allowRerun: false,
+  });
+  console.log(JSON.stringify(result, null, 2));
+  if (result.status === "failed") process.exitCode = 1;
 }
 
 main().catch((error) => {

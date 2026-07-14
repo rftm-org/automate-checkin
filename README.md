@@ -14,7 +14,31 @@ npm run checkin:dry
 npm run verify
 ```
 
-No local web server is used, so this project does not need `localhost:3000` or any other port.
+No browser-harness automation is needed for the CLI scripts. The web app below uses `localhost` only.
+
+## Web app (multi-comptes, localhost)
+
+Une web app locale permet à plusieurs personnes d'ajouter leur session Hoyolab via une interface, de voir le statut/la preuve de chaque compte, de lancer le check-in à la main, et de pousser le bundle de comptes vers GitHub.
+
+```powershell
+npm run web          # Demarre sur http://127.0.0.1:8787 (WEB_PORT pour changer)
+```
+
+- **Ajouter un compte** : lance un Chromium fenêtré sur la connexion Hoyolab. L'utilisateur se connecte, puis clique « Sauvegarder la session ». L'état est sauvegardé dans `.auth/accounts/<id>.json` et le bundle GitHub est régénéré + poussé automatiquement.
+- **Supprimer / Lancer le check-in (1 ou tous) / Push secrets** : depuis l'interface.
+- Les preuves sont stockées dans `output/proofs/<id>/<JJ>.png` (31 max/compte, écrasement du même jour du mois).
+- La planification reste dans GitHub Actions (cron + `workflow_dispatch`). Le workflow lit le secret `HOYOLAB_ACCOUNTS_B64` (bundle de tous les comptes) et lance `npm run checkin:all`.
+- **Sécurité** : l'app est bindée stricte à `127.0.0.1`, sans auth pour l'instant (usage localhost uniquement).
+
+Variables (`.env`) : `WEB_HOST`, `WEB_PORT`, `WEB_DB_PATH`, `ACCOUNTS_SECRET_NAME`, `BUNDLE_PATH`, `ACCOUNTS_DIR`.
+
+Scripts utiles :
+
+```powershell
+npm run web            # Serveur web local
+npm run push-secrets   # Regénère le bundle et fait `gh secret set HOYOLAB_ACCOUNTS_B64`
+npm run checkin:all    # Check-in de tous les comptes enregistrés
+```
 
 ## Local Setup
 
