@@ -6,6 +6,7 @@ export const HOYOLAB_SIGNIN_URL =
 
 export const DEFAULT_STORAGE_STATE_PATH = ".auth/hoyolab-storage-state.json";
 export const DEFAULT_PROOF_DIR = "output/proofs";
+export const ACCOUNTS_DIR = process.env.ACCOUNTS_DIR || ".auth/accounts";
 
 export function parisDate(): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -54,6 +55,24 @@ export async function storageStatePath(): Promise<string> {
   }
 
   return path;
+}
+
+export function parisDay(): number {
+  return Number(parisDate().slice(8, 10));
+}
+
+export function accountStorageStatePath(id: string): string {
+  return resolve(ACCOUNTS_DIR, `${id}.json`);
+}
+
+export function accountProofDir(id: string): string {
+  const proofDir = resolve(process.env.PROOF_DIR || DEFAULT_PROOF_DIR);
+  return resolve(proofDir, id);
+}
+
+export function accountProofPath(id: string, day = parisDay()): string {
+  const dd = String(day).padStart(2, "0");
+  return resolve(accountProofDir(id), `${dd}.png`);
 }
 
 export function proofPath(kind = "checkin"): string {
