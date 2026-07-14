@@ -12,14 +12,18 @@
     "web": "tsx src/web/server.ts",
     "push-secrets": "tsx src/push-secrets.ts",
     "migrate-legacy": "tsx src/migrate-legacy.ts",
-    "verify": "tsc --noEmit"
+    "verify": "tsc --noEmit",
+    "lint": "eslint ."
   },
   "dependencies": {
     "playwright": "^1.56.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/node": "^24.10.1",
+    "eslint": "^9.39.5",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.64.0"
   }
 }

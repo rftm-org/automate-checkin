@@ -13,7 +13,7 @@ import {
   accountStorageStatePath,
   HOYOLAB_SIGNIN_URL,
 } from "../config.js";
-import { buildBundle, writeBundle } from "../bundle.js";
+import { writeBundle } from "../bundle.js";
 import { pushSecrets } from "../github.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
